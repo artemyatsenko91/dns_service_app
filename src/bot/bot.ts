@@ -1,45 +1,70 @@
-import { Telegraf } from "telegraf";
-import { LoggerService } from "../services/LoggerService";
+import { Context, SessionStore, Telegraf, session } from "telegraf";
+import { LoggerService } from "../services/LoggerService/LoggerService";
 import { IConfigService } from "../services/ConfigService/IConfigService";
-import { UnknownCommand } from "./commands/UnknownCommand";
 import { Command, CommandInfo } from "./commands/BotCommand";
+import { RegisterDomainCommand } from "./commands/DomainCommand/DomainCommand";
+import { StartCommand } from "./commands/StartCommand/StartCommand";
+import { ManualInput } from "./commands/ManualInput";
+import { Update } from "telegraf/typings/core/types/typegram";
+import { ISessionData, State } from "./ISessionData";
+import { Redis } from "@telegraf/session/redis";
+import { CloudflareService } from "../services/CloudflareService/CloudflareService";
 
 interface Commands {
-    unknown: UnknownCommand;
+    start: StartCommand;
+    registerDomain: RegisterDomainCommand;
+    manual: ManualInput;
 }
+
+export interface BotContext extends Context<Update> {
+    session?: ISessionData;
+}
+
+const sessionData: ISessionData = {
+    state: State.NEUTRAL,
+    chatId: 1,
+    domainZoneId: "",
+    ip: "",
+    dnsRecordToEdit: {
+        comment: "",
+        content: "",
+        name: "",
+        proxied: false,
+        type: "",
+        id: "",
+    },
+    editedDnsRecord: {},
+};
 
 export class Bot {
     public bot: Telegraf;
-    public commands;
-
-    // public commands: Commands = {
-    //     start: new StartCommand(this),
-    //     about: new AboutCommand(this),
-    //     links: new LinksCommand(this),
-    //     help: new HelpCommand(this),
-    //     language: new LanguageCommand(this),
-    //     unknown: new UnknownCommand(this),
-    // };
-    public commandsInitialized: boolean = false;
     public logger: LoggerService;
+    private store: SessionStore<ISessionData> = Redis({
+        url: "redis://127.0.0.1:6379",
+    });
+    public cloudFlareService: CloudflareService;
 
-    constructor(private readonly configService: IConfigService) {
+    constructor(
+        private readonly configService: IConfigService,
+        cloudflareService: CloudflareService,
+    ) {
         this.bot = new Telegraf(this.configService.get("TELEGRAM_TOKEN"));
         this.logger = new LoggerService();
-        this.commands = {
-            unknown: new UnknownCommand(
-                this,
-                this.configService.get("TELEGRAM_CHAT_ID"),
-            ),
-        };
+        this.cloudFlareService = cloudflareService;
     }
 
-    public setupCommands() {
+    public commands: Commands = {
+        start: new StartCommand(this),
+        registerDomain: new RegisterDomainCommand(this),
+        manual: new ManualInput(this),
+    };
+
+    setupCommands() {
         const commandsInfos = this.getCommandsInfos();
         this.bot.telegram.setMyCommands(commandsInfos);
     }
 
-    public getCommandsInfos(): CommandInfo[] {
+    getCommandsInfos(): CommandInfo[] {
         return Object.keys(this.commands)
             .map((commandStr) => {
                 const commandKey = commandStr as keyof Commands;
@@ -58,7 +83,16 @@ export class Bot {
     }
 
     init() {
+        this.bot.use(
+            session({
+                store: this.store,
+                defaultSession(ctx) {
+                    return sessionData;
+                },
+            }),
+        );
         this.initCommands();
+        this.setupCommands();
         this.bot.launch();
         this.logger.info("Bot was running");
     }

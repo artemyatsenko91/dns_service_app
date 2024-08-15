@@ -1,6 +1,7 @@
 import pino, { Logger } from "pino";
+import { ILoggerService } from "./ILoggerService";
 
-export class LoggerService {
+export class LoggerService implements ILoggerService {
     private logger: Logger;
 
     constructor() {
