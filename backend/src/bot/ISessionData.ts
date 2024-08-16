@@ -1,6 +1,5 @@
 export interface ISessionData {
     state?: State;
-    chatId?: number;
     domainZoneId?: string;
     ip?: string;
     dnsRecordToEdit?: IDNSRecord;

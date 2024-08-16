@@ -85,7 +85,10 @@ export class ManualInput extends Command {
                             outMessage = "Піддомен успішно змінений";
                             break;
                         }
-                        default:
+                        default: {
+                            context.reply("Я не розумію що ти ввів");
+                            return;
+                        }
                     }
 
                     try {
